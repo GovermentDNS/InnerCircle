@@ -1,0 +1,10 @@
+{
+  "name": "innercircle",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter api start:dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  }
+}
