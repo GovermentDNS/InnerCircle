@@ -1,0 +1,191 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  FAN
+  CREATOR
+  MODERATOR
+  ADMIN
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PostVisibility {
+  FREE
+  SUBSCRIBERS
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PAST_DUE
+}
+
+enum TransactionType {
+  SUBSCRIPTION
+  TIP
+  PAY_PER_VIEW
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum LedgerAccount {
+  CREATOR
+  PLATFORM
+}
+
+model User {
+  id               String   @id @default(uuid())
+  email            String   @unique
+  username         String   @unique
+  passwordHash     String
+  role             Role     @default(FAN)
+  isAdultVerified  Boolean  @default(false)
+  twoFactorSecret  String?
+  twoFactorEnabled Boolean  @default(false)
+  isBanned         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  creatorProfile CreatorProfile?
+  subscriptions  Subscription[]
+  transactions   Transaction[]
+  refreshTokens  RefreshToken[]
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model CreatorProfile {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  displayName       String
+  bio               String?
+  avatarUrl         String?
+  bannerUrl         String?
+  monthlyPriceKobo  Int       @default(0)
+  kycStatus         KycStatus @default(NOT_STARTED)
+  kycProviderRef    String?
+  bankCode          String?
+  bankAccountNumber String?
+  paystackRecipient String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  posts       Post[]
+  subscribers Subscription[]
+}
+
+model Post {
+  id         String         @id @default(uuid())
+  creatorId  String
+  caption    String?
+  visibility PostVisibility @default(SUBSCRIBERS)
+  isRemoved  Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  creator CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  media   Media[]
+
+  @@index([creatorId, createdAt])
+}
+
+model Media {
+  id         String    @id @default(uuid())
+  postId     String
+  type       MediaType
+  storageKey String
+  mimeType   String
+  sizeBytes  Int
+  createdAt  DateTime  @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id               String             @id @default(uuid())
+  fanId            String
+  creatorId        String
+  status           SubscriptionStatus @default(ACTIVE)
+  priceKobo        Int
+  currentPeriodEnd DateTime
+  createdAt        DateTime           @default(now())
+  cancelledAt      DateTime?
+
+  fan     User           @relation(fields: [fanId], references: [id], onDelete: Cascade)
+  creator CreatorProfile @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([fanId, creatorId])
+  @@index([creatorId])
+}
+
+model Transaction {
+  id          String            @id @default(uuid())
+  payerId     String
+  creatorId   String
+  type        TransactionType
+  status      TransactionStatus @default(PENDING)
+  amountKobo  Int
+  currency    String            @default("NGN")
+  providerRef String            @unique
+  createdAt   DateTime          @default(now())
+
+  payer         User          @relation(fields: [payerId], references: [id])
+  ledgerEntries LedgerEntry[]
+
+  @@index([creatorId])
+}
+
+model LedgerEntry {
+  id            String        @id @default(uuid())
+  transactionId String
+  account       LedgerAccount
+  creatorId     String?
+  amountKobo    Int
+  note          String?
+  createdAt     DateTime      @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([creatorId])
+}
