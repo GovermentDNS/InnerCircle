@@ -1,12 +1,26 @@
-import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
+import { MAX_MEDIA_PER_POST } from '../../media/media.constants';
 
 export class CreatePostDto {
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(2000)
-  caption: string;
+  caption?: string;
 
   @IsOptional()
   @IsIn(['FREE', 'SUBSCRIBERS'])
   visibility?: 'FREE' | 'SUBSCRIBERS';
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_MEDIA_PER_POST)
+  @IsString({ each: true })
+  mediaKeys?: string[];
 }

@@ -1,16 +1,34 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MediaService } from '../media/media.service';
 import { CreatePostDto } from './dto/create-post.dto';
 
 type Viewer = { id: string; role: string } | null;
 
+type PostRow = {
+  id: string;
+  caption: string | null;
+  visibility: string;
+  createdAt: Date;
+  media: {
+    id: string;
+    type: string;
+    mimeType: string;
+    storageKey: string;
+  }[];
+};
+
 @Injectable()
 export class PostsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private media: MediaService,
+  ) {}
 
   // A cancelled subscription keeps access until the paid period ends.
   private async hasAccess(
@@ -34,22 +52,28 @@ export class PostsService {
     return !!sub;
   }
 
-  private shape(
-    p: {
-      id: string;
-      caption: string | null;
-      visibility: string;
-      createdAt: Date;
-    },
-    unlocked: boolean,
-  ) {
+  // Locked posts never include a caption or media links.
+  private async shape(p: PostRow, unlocked: boolean) {
     const locked = p.visibility === 'SUBSCRIBERS' && !unlocked;
+    const media = locked
+      ? []
+      : await Promise.all(
+          p.media.map(async (m) => ({
+            id: m.id,
+            type: m.type,
+            mimeType: m.mimeType,
+            url: await this.media.urlFor(m.storageKey),
+          })),
+        );
+
     return {
       id: p.id,
       visibility: p.visibility,
       createdAt: p.createdAt,
       locked,
       caption: locked ? null : p.caption,
+      mediaCount: p.media.length,
+      media,
     };
   }
 
@@ -60,12 +84,31 @@ export class PostsService {
     });
     if (!profile) throw new ForbiddenException('Creator profile required');
 
+    const keys = Array.from(new Set(dto.mediaKeys ?? []));
+    const caption = dto.caption?.trim() || null;
+    if (!caption && keys.length === 0) {
+      throw new BadRequestException('A post needs a caption or media');
+    }
+
+    const files = keys.length
+      ? await this.media.verifyUploads(profile.id, keys)
+      : [];
+
     const post = await this.prisma.post.create({
       data: {
         creatorId: profile.id,
-        caption: dto.caption,
+        caption,
         visibility: dto.visibility ?? 'SUBSCRIBERS',
+        media: {
+          create: files.map((f) => ({
+            type: f.type,
+            storageKey: f.storageKey,
+            mimeType: f.mimeType,
+            sizeBytes: f.sizeBytes,
+          })),
+        },
       },
+      include: { media: { orderBy: { createdAt: 'asc' } } },
     });
     return this.shape(post, true);
   }
@@ -89,13 +132,13 @@ export class PostsService {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: { media: { orderBy: { createdAt: 'asc' } } },
     });
 
     const page = posts.slice(0, limit);
     return {
-      items: page.map((p) => this.shape(p, unlocked)),
-      nextCursor:
-        posts.length > limit ? page[page.length - 1].id : null,
+      items: await Promise.all(page.map((p) => this.shape(p, unlocked))),
+      nextCursor: posts.length > limit ? page[page.length - 1].id : null,
     };
   }
 
@@ -117,6 +160,7 @@ export class PostsService {
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       include: {
+        media: { orderBy: { createdAt: 'asc' } },
         creator: {
           select: {
             displayName: true,
@@ -127,16 +171,18 @@ export class PostsService {
     });
 
     const page = posts.slice(0, limit);
-    return {
-      items: page.map((p) => ({
-        ...this.shape(p, true),
+    const items = await Promise.all(
+      page.map(async (p) => ({
+        ...(await this.shape(p, true)),
         creator: {
           username: p.creator.user.username,
           displayName: p.creator.displayName,
         },
       })),
-      nextCursor:
-        posts.length > limit ? page[page.length - 1].id : null,
+    );
+    return {
+      items,
+      nextCursor: posts.length > limit ? page[page.length - 1].id : null,
     };
   }
 
