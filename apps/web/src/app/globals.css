@@ -24,3 +24,10 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* InnerCircle: light theme only for now */
+html,
+body {
+  background: #ffffff;
+  color: #171717;
+}
