@@ -13,8 +13,20 @@ export default function Header() {
           InnerCircle
         </Link>
         <nav className="flex items-center gap-3 text-sm">
+          <Link
+            href="/creators"
+            className="text-neutral-700 hover:text-neutral-900"
+          >
+            Discover
+          </Link>
           {loading ? null : user ? (
             <>
+              <Link
+                href="/feed"
+                className="text-neutral-700 hover:text-neutral-900"
+              >
+                Feed
+              </Link>
               <Link
                 href="/dashboard"
                 className="text-neutral-700 hover:text-neutral-900"

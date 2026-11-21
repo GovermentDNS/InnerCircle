@@ -130,3 +130,26 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
   }
   return parseResponse<T>(res);
 }
+
+function accessTokenExpiresSoon(token: string, skewSeconds = 30): boolean {
+  try {
+    const part = token.split('.')[1];
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+    const { exp } = JSON.parse(json) as { exp?: number };
+    if (!exp) return false;
+    return exp * 1000 - Date.now() < skewSeconds * 1000;
+  } catch {
+    return true;
+  }
+}
+
+export async function apiWithOptionalAuth<T>(
+  path: string,
+  opts: Omit<Options, 'auth'> = {},
+): Promise<T> {
+  const { access, refresh } = getTokens();
+  if (refresh && (!access || accessTokenExpiresSoon(access))) {
+    await refreshTokens();
+  }
+  return api<T>(path, { ...opts, auth: true });
+}
